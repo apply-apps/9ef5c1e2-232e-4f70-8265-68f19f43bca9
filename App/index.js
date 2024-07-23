@@ -1,63 +1,98 @@
 // Filename: index.js
 // Combined code from all files
-import React, { useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, TextInput, Button, View, ActivityIndicator, Alert } from 'react-native';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { SafeAreaView, StyleSheet, Text, Button, View, Alert, Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import * as Permissions from 'expo-permissions';
+
+// Set the notification handler
+Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+    }),
+});
 
 export default function App() {
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
+    const [expoPushToken, setExpoPushToken] = useState('');
+    const [notification, setNotification] = useState(false);
+    const notificationListener = useRef();
+    const responseListener = useRef();
 
-    const handleLogin = async () => {
-        setLoading(true);
-        try {
-            const response = await fetch('http://apihub.p.appply.xyz:3300/chatgpt', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    messages: [
-                        { role: 'system', content: 'You are a helpful assistant. Please provide answers for given requests.' },
-                        { role: 'user', content: `Login request for username: ${username} and password: ${password}` }
-                    ],
-                    model: 'gpt-4o'
-                }),
-            });
-            const data = await response.json();
-            Alert.alert('Response', data.response);
-        } catch (error) {
-            Alert.alert('Error', 'Failed to login');
-        } finally {
-            setLoading(false);
-        }
+    useEffect(() => {
+        registerForPushNotificationsAsync().then(token => setExpoPushToken(token));
+
+        // This listener is fired whenever a notification is received while the app is foregrounded
+        notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+            setNotification(notification);
+        });
+
+        // This listener is fired whenever a user taps on or interacts with a notification
+        responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+            console.log(response);
+        });
+
+        return () => {
+            Notifications.removeNotificationSubscription(notificationListener.current);
+            Notifications.removeNotificationSubscription(responseListener.current);
+        };
+    }, []);
+
+    // Function to schedule a notification
+    const schedulePushNotification = async () => {
+        await Notifications.scheduleNotificationAsync({
+            content: {
+                title: "You've got mail! 📬",
+                body: 'Here is the notification body',
+                data: { data: 'goes here' },
+            },
+            trigger: { seconds: 2 },
+        });
     };
 
     return (
         <SafeAreaView style={styles.container}>
-            <View style={styles.inputContainer}>
-                <Text style={styles.title}>Login</Text>
-                <TextInput
-                    style={styles.input}
-                    placeholder="Username"
-                    value={username}
-                    onChangeText={setUsername}
+            <View style={styles.content}>
+                <Text style={styles.title}>Push Notifications</Text>
+                <Button
+                    title="Press to schedule a notification"
+                    onPress={async () => {
+                        await schedulePushNotification();
+                    }}
                 />
-                <TextInput
-                    style={styles.input}
-                    placeholder="Password"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry
-                />
-                {loading ? (
-                    <ActivityIndicator size="large" color="#0000ff" />
-                ) : (
-                    <Button title="Login" onPress={handleLogin} />
-                )}
             </View>
         </SafeAreaView>
     );
+}
+
+// Function to register for push notifications
+async function registerForPushNotificationsAsync() {
+    let token;
+    if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+            name: 'default',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF231F7C',
+        });
+    }
+
+    const { status: existingStatus } = await Permissions.getAsync(Permissions.NOTIFICATIONS);
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+        const { status } = await Permissions.askAsync(Permissions.NOTIFICATIONS);
+        finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+        Alert.alert('Failed to get push token for push notification!');
+        return;
+    }
+    token = (await Notifications.getExpoPushTokenAsync()).data;
+    console.log(token);
+
+    return token;
 }
 
 const styles = StyleSheet.create({
@@ -67,20 +102,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginTop: 30,
     },
-    inputContainer: {
-        width: '80%',
+    content: {
+        alignItems: 'center',
     },
     title: {
         fontSize: 32,
         fontWeight: 'bold',
         marginBottom: 20,
-        alignSelf: 'center',
-    },
-    input: {
-        height: 40,
-        borderColor: '#000',
-        borderWidth: 1,
-        marginBottom: 12,
-        paddingLeft: 8,
     },
 });
